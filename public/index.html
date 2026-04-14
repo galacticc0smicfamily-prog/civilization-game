@@ -48,80 +48,97 @@
     </div>
 
     <canvas id="gameCanvas"></canvas>
-
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    <script>
-        // This tells the game to connect to whatever website it is currently on
-const socket = io(); 
+<script>
+    const socket = io();
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    let myId = null;
+    let players = {};
+    let worldObjects = [];
+    let keys = {};
 
-// ADD THIS: A simple check to see if we are connected
-socket.on('connect', () => {
-    console.log("Successfully connected to the server!");
-});
+    function join(c) {
+        document.getElementById('titleScreen').style.display = 'none';
+        socket.emit('joinGame', { clan: c });
+    }
 
-socket.on('connect_error', (err) => {
-    console.log("Connection error: ", err);
-});
-        const socket = io();
-        const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
-        let myId, players = {}, worldObjects = [];
-        const keys = {};
+    window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; });
+    window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
 
-        function join(clan) {
-            document.getElementById('titleScreen').style.display = 'none';
-            socket.emit('joinGame', { clan: clan });
+    socket.on('init', data => {
+        players = data.players;
+        worldObjects = data.worldObjects;
+        myId = data.myId;
+        if(players[myId]) {
+            document.getElementById('clanVal').innerText = players[myId].clan.toUpperCase();
         }
+    });
 
-        socket.on('init', data => {
-            players = data.players;
-            worldObjects = data.worldObjects;
-            myId = data.myId;
-            document.getElementById('clanName').innerText = players[myId].clan.toUpperCase();
-        });
+    socket.on('newPlayer', p => { players[p.id] = p; });
+    
+    socket.on('playerMoved', d => { 
+        if(players[d.id]) { 
+            players[d.id].x = d.x; 
+            players[d.id].y = d.y; 
+        }
+    });
 
-        socket.on('newPlayer', p => players[p.id] = p);
-        socket.on('tick', serverPlayers => {
-            players = serverPlayers;
+    socket.on('tick', sPlayers => {
+        players = sPlayers;
+        if(myId && players[myId]) {
             const me = players[myId];
-            if(me) {
-                document.getElementById('ageVal').innerText = Math.floor(me.age);
-                document.getElementById('stamVal').innerText = me.stamina;
-                document.getElementById('h-logs').innerText = me.inventory.logs;
-                document.getElementById('h-sticks').innerText = me.inventory.sticks;
-                document.getElementById('h-stones').innerText = me.inventory.stones;
-                document.getElementById('h-spears').innerText = me.inventory.spears;
-                document.getElementById('h-tables').innerText = me.inventory.tables;
-            }
-        });
+            document.getElementById('ageVal').innerText = Math.floor(me.age);
+            document.getElementById('h-logs').innerText = me.inventory.logs;
+            document.getElementById('h-spears').innerText = me.inventory.spears;
+        }
+    });
 
-        // (Previous movement and drawing logic remains same, but using p.color for clan color)
-        function draw() {
-            if(!myId || !players[myId]) return requestAnimationFrame(draw);
-            canvas.width = window.innerWidth; canvas.height = window.innerHeight;
-            ctx.clearRect(0,0,canvas.width, canvas.height);
+    function draw() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
 
-            const me = players[myId];
-            if(window.onkeydown) /* movement keys logic here */
-
-            const cx = me.x - canvas.width/2;
-            const cy = me.y - canvas.height/2;
-
-            worldObjects.forEach(o => {
-                ctx.fillStyle = o.type === 'tree' ? '#224422' : '#666';
-                ctx.beginPath(); ctx.arc(o.x - cx, o.y - cy, 20, 0, Math.PI*2); ctx.fill();
-            });
-
-            for(let id in players) {
-                let p = players[id];
-                ctx.fillStyle = p.color;
-                ctx.beginPath(); ctx.arc(p.x - cx, p.y - cy, 20, 0, Math.PI*2); ctx.fill();
-                ctx.fillStyle = "white";
-                ctx.fillText(`Age ${Math.floor(p.age)}`, p.x - cx - 15, p.y - cy - 30);
-            }
+        if(!myId || !players[myId]) {
             requestAnimationFrame(draw);
+            return;
         }
-        draw();
-    </script>
+        
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        const me = players[myId];
+        let moved = false;
+        if(keys['w']) { me.y -= 5; moved = true; }
+        if(keys['s']) { me.y += 5; moved = true; }
+        if(keys['a']) { me.x -= 5; moved = true; }
+        if(keys['d']) { me.x += 5; moved = true; }
+
+        if(moved) {
+            socket.emit('playerMovement', {x: me.x, y: me.y});
+        }
+
+        const camX = me.x - canvas.width/2;
+        const camY = me.y - canvas.height/2;
+
+        worldObjects.forEach(o => {
+            ctx.fillStyle = o.type === 'tree' ? '#2e7d32' : '#757575';
+            ctx.beginPath();
+            ctx.arc(o.x - camX, o.y - camY, 20, 0, Math.PI*2);
+            ctx.fill();
+        });
+
+        for(let id in players) {
+            let p = players[id];
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            ctx.arc(p.x - camX, p.y - camY, 15, 0, Math.PI*2);
+            ctx.fill();
+            ctx.fillStyle = "white";
+            ctx.fillText("Age: " + Math.floor(p.age), p.x - camX - 15, p.y - camY - 25);
+        }
+        requestAnimationFrame(draw);
+    }
+    draw();
+</script>
 </body>
 </html>
