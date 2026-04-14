@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { margin: 0; background: #567d46; overflow: hidden; font-family: sans-serif; color: white; }
+        #menu { position: fixed; inset: 0; background: black; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; }
+        #gui { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.5); padding: 10px; }
+        .btn { padding: 10px; margin: 5px; cursor: pointer; border: none; width: 150px; }
+    </style>
+</head>
+<body>
+    <div id="menu">
+        <h1>Ymay Local</h1>
+        <button class="btn" style="background:red" onclick="start('red')">Red Clan</button>
+        <button class="btn" style="background:blue" onclick="start('blue')">Blue Clan</button>
+    </div>
+
+    <div id="gui">Age: <span id="age">0</span> | Logs: <span id="logs">0</span></div>
+    <canvas id="canvas"></canvas>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let myId, players = {}, objects = [], keys = {};
+
+        function start(clan) {
+            document.getElementById('menu').style.display = 'none';
+            socket.emit('join', { clan });
+        }
+
+        window.onkeydown = e => keys[e.key.toLowerCase()] = true;
+        window.onkeyup = e => keys[e.key.toLowerCase()] = false;
+
+        socket.on('init', d => { players = d.players; objects = d.worldObjects; myId = d.myId; });
+        socket.on('newPlayer', p => players[p.id] = p);
+        socket.on('moved', d => { if(players[d.id]) { players[d.id].x = d.x; players[d.id].y = d.y; }});
+        socket.on('update', p => { 
+            players = p; 
+            if(players[myId]) document.getElementById('age').innerText = Math.floor(players[myId].age);
+        });
+        socket.on('remove', id => delete players[id]);
+
+        function draw() {
+            canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+            if(!myId || !players[myId]) return requestAnimationFrame(draw);
+            
+            const me = players[myId];
+            if(keys['w']) me.y -= 4; if(keys['s']) me.y += 4;
+            if(keys['a']) me.x -= 4; if(keys['d']) me.x += 4;
+            socket.emit('move', { x: me.x, y: me.y });
+
+            const ox = canvas.width/2 - me.x;
+            const oy = canvas.height/2 - me.y;
+
+            objects.forEach(o => {
+                ctx.fillStyle = o.type === 'tree' ? 'darkgreen' : 'gray';
+                ctx.beginPath(); ctx.arc(o.x + ox, o.y + oy, 20, 0, 7); ctx.fill();
+            });
+
+            for(let id in players) {
+                const p = players[id];
+                ctx.fillStyle = p.clan;
+                ctx.beginPath(); ctx.arc(p.x + ox, p.y + oy, 15, 0, 7); ctx.fill();
+            }
+            requestAnimationFrame(draw);
+        }
+        draw();
+    </script>
+</body>
+</html>
