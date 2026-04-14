@@ -1,99 +1,118 @@
-<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-<script>
-    // 1. Setup Variables
-    const socket = io();
-    const canvas = document.getElementById('gameCanvas');
-    const ctx = canvas.getContext('2d');
-    let myId = null;
-    let players = {};
-    let worldObjects = [];
-    const keys = {};
+const express = require('express');
+const app = express();
+const http = require('http').Server(app);
+const io = require('socket.io')(http);
+const path = require('path');
 
-    // 2. UI Functions
-    function join(c) {
-        document.getElementById('titleScreen').style.display = 'none';
-        socket.emit('joinGame', { clan: c });
-    }
+// Crucial for Render: Tell it exactly where the public folder is
+app.use(express.static(path.join(__dirname, 'public')));
 
-    // 3. Input Handling
-    window.addEventListener('keydown', function(e) { keys[e.key.toLowerCase()] = true; });
-    window.addEventListener('keyup', function(e) { keys[e.key.toLowerCase()] = false; });
+let players = {};
+let worldObjects = [];
 
-    // 4. Socket Listeners
-    socket.on('init', function(data) {
-        players = data.players;
-        worldObjects = data.worldObjects;
-        myId = data.myId;
-        if (players[myId]) {
-            document.getElementById('clanVal').innerText = players[myId].clan.toUpperCase();
-        }
-    });
-
-    socket.on('newPlayer', function(p) { players[p.id] = p; });
-    
-    socket.on('playerMoved', function(d) { 
-        if (players[d.id]) { 
-            players[d.id].x = d.x; 
-            players[d.id].y = d.y; 
-        }
-    });
-
-    socket.on('tick', function(serverPlayers) {
-        players = serverPlayers;
-        if (myId && players[myId]) {
-            const me = players[myId];
-            document.getElementById('ageVal').innerText = Math.floor(me.age);
-            document.getElementById('h-logs').innerText = me.inventory.logs;
-            document.getElementById('h-spears').innerText = me.inventory.spears;
-        }
-    });
-
-    // 5. Game Loop
-    function draw() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-
-        if (!myId || !players[myId]) {
-            requestAnimationFrame(draw);
-            return;
-        }
-        
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        
-        const me = players[myId];
-        let moved = false;
-        if (keys['w']) { me.y -= 5; moved = true; }
-        if (keys['s']) { me.y += 5; moved = true; }
-        if (keys['a']) { me.x -= 5; moved = true; }
-        if (keys['d']) { me.x += 5; moved = true; }
-
-        if (moved) {
-            socket.emit('playerMovement', { x: me.x, y: me.y });
-        }
-
-        const camX = me.x - canvas.width / 2;
-        const camY = me.y - canvas.height / 2;
-
-        // Draw Trees/Rocks
-        worldObjects.forEach(function(o) {
-            ctx.fillStyle = (o.type === 'tree') ? '#2e7d32' : '#757575';
-            ctx.beginPath();
-            ctx.arc(o.x - camX, o.y - camY, 20, 0, Math.PI * 2);
-            ctx.fill();
+// Research-backed Ymay Resource Spawning
+function initWorld() {
+    worldObjects = [];
+    for (let i = 0; i < 60; i++) {
+        const type = Math.random() > 0.3 ? 'tree' : 'rock';
+        worldObjects.push({ 
+            id: 'obj' + i, 
+            type: type, 
+            x: Math.random() * 3000, 
+            y: Math.random() * 3000, 
+            hp: 5,
+            size: type === 'tree' ? 35 : 20
         });
-
-        // Draw All Players
-        for (let id in players) {
-            let p = players[id];
-            ctx.fillStyle = p.color;
-            ctx.beginPath();
-            ctx.arc(p.x - camX, p.y - camY, 15, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = "white";
-            ctx.font = "12px Arial";
-            ctx.fillText("Age: " + Math.floor(p.age), p.x - camX - 15, p.y - camY - 25);
-        }
-        requestAnimationFrame(draw);
     }
-    draw();
-</script>
+}
+initWorld();
+
+io.on('connection', (socket) => {
+    console.log('User connected:', socket.id);
+
+    socket.on('joinGame', (data) => {
+        try {
+            const clan = data.clan || 'red';
+            const clanMates = Object.values(players).filter(p => p.clan === clan && p.age >= 18);
+            let spawnPos = { x: Math.random() * 2000, y: Math.random() * 2000 };
+            
+            if (clanMates.length > 0) {
+                const parent = clanMates[Math.floor(Math.random() * clanMates.length)];
+                spawnPos = { x: parent.x + 50, y: parent.y + 50 };
+            }
+
+            players[socket.id] = {
+                id: socket.id,
+                clan: clan,
+                x: spawnPos.x,
+                y: spawnPos.y,
+                age: 0,
+                hp: 100,
+                stamina: 100,
+                inventory: { rocks: 1, logs: 0, sticks: 0, spears: 0 }, // THE STARTING ROCK
+                color: clan,
+                lastAction: 0
+            };
+
+            socket.emit('init', { players, worldObjects, myId: socket.id });
+            socket.broadcast.emit('newPlayer', players[socket.id]);
+        } catch (err) {
+            console.error("Join Error:", err);
+        }
+    });
+
+    socket.on('playerMovement', (data) => {
+        if (players[socket.id]) {
+            players[socket.id].x = data.x;
+            players[socket.id].y = data.y;
+            socket.broadcast.emit('playerMoved', { id: socket.id, x: data.x, y: data.y });
+        }
+    });
+
+    socket.on('action', (targetId) => {
+        const p = players[socket.id];
+        if (!p || Date.now() - p.lastAction < 300) return;
+
+        const objIndex = worldObjects.findIndex(o => o.id === targetId);
+        if (objIndex > -1) {
+            const obj = worldObjects[objIndex];
+            const dist = Math.hypot(obj.x - p.x, obj.y - p.y);
+            
+            if (dist < 100) {
+                p.lastAction = Date.now();
+                obj.hp--;
+                if (obj.hp <= 0) {
+                    if (obj.type === 'tree') { 
+                        p.inventory.logs += 1; 
+                        p.inventory.sticks += 2; 
+                    } else { 
+                        p.inventory.rocks += 1; 
+                    }
+                    worldObjects.splice(objIndex, 1);
+                    io.emit('removeObject', targetId);
+                }
+                io.emit('updateStats', { id: socket.id, stats: p });
+            }
+        }
+    });
+
+    socket.on('disconnect', () => {
+        delete players[socket.id];
+        io.emit('playerDisconnected', socket.id);
+    });
+});
+
+// Evolution Loop
+setInterval(() => {
+    for (let id in players) {
+        players[id].age += 0.02;
+        if (players[id].stamina < 100) players[id].stamina += 1;
+    }
+    io.emit('tick', players);
+}, 1000);
+
+// RENDER PORT CONFIGURATION
+const PORT = process.env.PORT || 3000;
+http.listen(PORT, () => {
+    console.log(`YMAY Server Live on Port ${PORT}`);
+});
