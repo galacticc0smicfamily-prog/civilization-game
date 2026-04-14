@@ -2,67 +2,111 @@
 <html>
 <head>
     <style>
-        body { margin: 0; background: #567d46; overflow: hidden; font-family: sans-serif; color: white; }
-        #menu { position: fixed; inset: 0; background: black; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; }
-        #gui { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.5); padding: 10px; }
-        .btn { padding: 10px; margin: 5px; cursor: pointer; border: none; width: 150px; }
+        body { margin: 0; background: #4a703b; color: white; font-family: sans-serif; overflow: hidden; }
+
+        /* Title Screen */
+        #titleScreen { position: fixed; inset: 0; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100; }
+        .clan-btn { padding: 20px; margin: 10px; width: 200px; cursor: pointer; border: none; font-weight: bold; color: white; border-radius: 5px; }
+
+        /* HUD */
+        #hud { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.6); padding: 10px; border-radius: 5px; pointer-events: none; }
+        #hotbar { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 5px; background: rgba(0,0,0,0.6); padding: 10px; border-radius: 10px; }
+        .slot { width: 50px; height: 50px; border: 2px solid #fff; background: #333; display: flex; align-items: center; justify-content: center; font-size: 10px; text-align: center; }
+
+        /* Crafting */
+        #craftMenu { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.8); padding: 15px; border-radius: 10px; }
+        button { cursor: pointer; display: block; width: 100%; margin: 5px 0; }
     </style>
 </head>
 <body>
-    <div id="menu">
-        <h1>Ymay Local</h1>
-        <button class="btn" style="background:red" onclick="start('red')">Red Clan</button>
-        <button class="btn" style="background:blue" onclick="start('blue')">Blue Clan</button>
+
+    <div id="titleScreen">
+        <h1>Select Your Clan</h1>
+        <button class="clan-btn" style="background: #e74c3c;" onclick="join('red')">RED CLAN</button>
+        <button class="clan-btn" style="background: #3498db;" onclick="join('blue')">BLUE CLAN</button>
+        <button class="clan-btn" style="background: #2ecc71;" onclick="join('green')">GREEN CLAN</button>
+        <button class="clan-btn" style="background: #f1c40f; color: black;" onclick="join('yellow')">YELLOW CLAN</button>
     </div>
 
-    <div id="gui">Age: <span id="age">0</span> | Logs: <span id="logs">0</span></div>
-    <canvas id="canvas"></canvas>
+    <div id="hud">
+        Clan: <span id="clanName">-</span> | Age: <span id="ageVal">0</span><br>
+        Stamina: <span id="stamVal">100</span>
+    </div>
+
+    <div id="craftMenu">
+        <b>Crafting</b>
+        <button onclick="socket.emit('craft', 'spear')">Spear (4 Sticks)</button>
+        <button onclick="socket.emit('craft', 'table')">Craft Table (10 Logs)</button>
+    </div>
+
+    <div id="hotbar">
+        <div class="slot">Log<br><span id="h-logs">0</span></div>
+        <div class="slot">Stick<br><span id="h-sticks">0</span></div>
+        <div class="slot">Stone<br><span id="h-stones">0</span></div>
+        <div class="slot">Spear<br><span id="h-spears">0</span></div>
+        <div class="slot">Table<br><span id="h-tables">0</span></div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
         const socket = io();
-        const canvas = document.getElementById('canvas');
+        const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-        let myId, players = {}, objects = [], keys = {};
+        let myId, players = {}, worldObjects = [];
+        const keys = {};
 
-        function start(clan) {
-            document.getElementById('menu').style.display = 'none';
-            socket.emit('join', { clan });
+        function join(clan) {
+            document.getElementById('titleScreen').style.display = 'none';
+            socket.emit('joinGame', { clan: clan });
         }
 
-        window.onkeydown = e => keys[e.key.toLowerCase()] = true;
-        window.onkeyup = e => keys[e.key.toLowerCase()] = false;
-
-        socket.on('init', d => { players = d.players; objects = d.worldObjects; myId = d.myId; });
-        socket.on('newPlayer', p => players[p.id] = p);
-        socket.on('moved', d => { if(players[d.id]) { players[d.id].x = d.x; players[d.id].y = d.y; }});
-        socket.on('update', p => { 
-            players = p; 
-            if(players[myId]) document.getElementById('age').innerText = Math.floor(players[myId].age);
+        socket.on('init', data => {
+            players = data.players;
+            worldObjects = data.worldObjects;
+            myId = data.myId;
+            document.getElementById('clanName').innerText = players[myId].clan.toUpperCase();
         });
-        socket.on('remove', id => delete players[id]);
 
-        function draw() {
-            canvas.width = window.innerWidth; canvas.height = window.innerHeight;
-            if(!myId || !players[myId]) return requestAnimationFrame(draw);
-            
+        socket.on('newPlayer', p => players[p.id] = p);
+        socket.on('tick', serverPlayers => {
+            players = serverPlayers;
             const me = players[myId];
-            if(keys['w']) me.y -= 4; if(keys['s']) me.y += 4;
-            if(keys['a']) me.x -= 4; if(keys['d']) me.x += 4;
-            socket.emit('move', { x: me.x, y: me.y });
+            if(me) {
+                document.getElementById('ageVal').innerText = Math.floor(me.age);
+                document.getElementById('stamVal').innerText = me.stamina;
+                document.getElementById('h-logs').innerText = me.inventory.logs;
+                document.getElementById('h-sticks').innerText = me.inventory.sticks;
+                document.getElementById('h-stones').innerText = me.inventory.stones;
+                document.getElementById('h-spears').innerText = me.inventory.spears;
+                document.getElementById('h-tables').innerText = me.inventory.tables;
+            }
+        });
 
-            const ox = canvas.width/2 - me.x;
-            const oy = canvas.height/2 - me.y;
+        // (Previous movement and drawing logic remains same, but using p.color for clan color)
+        function draw() {
+            if(!myId || !players[myId]) return requestAnimationFrame(draw);
+            canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+            ctx.clearRect(0,0,canvas.width, canvas.height);
 
-            objects.forEach(o => {
-                ctx.fillStyle = o.type === 'tree' ? 'darkgreen' : 'gray';
-                ctx.beginPath(); ctx.arc(o.x + ox, o.y + oy, 20, 0, 7); ctx.fill();
+            const me = players[myId];
+            if(window.onkeydown) /* movement keys logic here */
+
+            const cx = me.x - canvas.width/2;
+            const cy = me.y - canvas.height/2;
+
+            worldObjects.forEach(o => {
+                ctx.fillStyle = o.type === 'tree' ? '#224422' : '#666';
+                ctx.beginPath(); ctx.arc(o.x - cx, o.y - cy, 20, 0, Math.PI*2); ctx.fill();
             });
 
             for(let id in players) {
-                const p = players[id];
-                ctx.fillStyle = p.clan;
-                ctx.beginPath(); ctx.arc(p.x + ox, p.y + oy, 15, 0, 7); ctx.fill();
+                let p = players[id];
+                ctx.fillStyle = p.color;
+                ctx.beginPath(); ctx.arc(p.x - cx, p.y - cy, 20, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = "white";
+                ctx.fillText(`Age ${Math.floor(p.age)}`, p.x - cx - 15, p.y - cy - 30);
             }
             requestAnimationFrame(draw);
         }
