@@ -1,86 +1,99 @@
-const express = require('express');
-const app = express();
-const http = require('http').Server(app);
-const io = require('socket.io')(http);
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script>
+    // 1. Setup Variables
+    const socket = io();
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    let myId = null;
+    let players = {};
+    let worldObjects = [];
+    const keys = {};
 
-app.use(express.static(__dirname + '/public'));
-
-let players = {};
-let worldObjects = [];
-let buildings = [];
-
-// Initialize world resources
-for (let i = 0; i < 60; i++) {
-    worldObjects.push({ id: 'obj'+i, type: i % 3 === 0 ? 'rock' : 'tree', x: Math.random() * 3000, y: Math.random() * 3000, health: 5 });
-}
-
-io.on('connection', (socket) => {
-
-    socket.on('joinGame', (data) => {
-        const clanMembers = Object.values(players).filter(p => p.clan === data.clan);
-        let spawnPos = { x: 1500, y: 1500 };
-        let parentId = null;
-
-        // Lineage Logic: Find a parent if clan isn't empty
-        if (clanMembers.length > 0) {
-            const potentialParents = clanMembers.filter(p => p.age >= 18);
-            if (potentialParents.length > 0) {
-                const parent = potentialParents[Math.floor(Math.random() * potentialParents.length)];
-                spawnPos = { x: parent.x, y: parent.y };
-                parentId = parent.id;
-            }
-        }
-
-        players[socket.id] = {
-            id: socket.id,
-            clan: data.clan,
-            parentId: parentId,
-            x: spawnPos.x, y: spawnPos.y,
-            age: 0, hp: 100, stamina: 100,
-            inventory: { logs: 0, sticks: 0, stones: 0, rocks: 0, spears: 0, tables: 0 },
-            color: data.clan // Red, Blue, Green, or Yellow
-        };
-
-        socket.emit('init', { players, worldObjects, buildings, myId: socket.id });
-        socket.broadcast.emit('newPlayer', players[socket.id]);
-    });
-
-    socket.on('playerMovement', (data) => {
-        if (players[socket.id]) {
-            players[socket.id].x = data.x;
-            players[socket.id].y = data.y;
-            socket.broadcast.emit('playerMoved', { id: socket.id, x: data.x, y: data.y });
-        }
-    });
-
-    socket.on('craft', (item) => {
-        const p = players[socket.id];
-        if (!p) return;
-        if (item === 'spear' && p.inventory.sticks >= 4) {
-            p.inventory.sticks -= 4;
-            p.inventory.spears += 1;
-        } else if (item === 'table' && p.inventory.logs >= 10) {
-            p.inventory.logs -= 10;
-            p.inventory.tables += 1;
-        }
-        io.emit('updateStats', { id: socket.id, stats: p });
-    });
-
-    socket.on('disconnect', () => {
-        delete players[socket.id];
-        io.emit('playerDisconnected', socket.id);
-    });
-});
-
-setInterval(() => {
-    for (let id in players) {
-        players[id].age += 0.2; // Aging up
-        if (players[id].stamina < 100) players[id].stamina += 5;
+    // 2. UI Functions
+    function join(c) {
+        document.getElementById('titleScreen').style.display = 'none';
+        socket.emit('joinGame', { clan: c });
     }
-    io.emit('tick', players);
-}, 1000);
 
-const PORT = process.env.PORT || 3000;
-http.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server is running on port ${PORT}`);
-});
+    // 3. Input Handling
+    window.addEventListener('keydown', function(e) { keys[e.key.toLowerCase()] = true; });
+    window.addEventListener('keyup', function(e) { keys[e.key.toLowerCase()] = false; });
+
+    // 4. Socket Listeners
+    socket.on('init', function(data) {
+        players = data.players;
+        worldObjects = data.worldObjects;
+        myId = data.myId;
+        if (players[myId]) {
+            document.getElementById('clanVal').innerText = players[myId].clan.toUpperCase();
+        }
+    });
+
+    socket.on('newPlayer', function(p) { players[p.id] = p; });
+    
+    socket.on('playerMoved', function(d) { 
+        if (players[d.id]) { 
+            players[d.id].x = d.x; 
+            players[d.id].y = d.y; 
+        }
+    });
+
+    socket.on('tick', function(serverPlayers) {
+        players = serverPlayers;
+        if (myId && players[myId]) {
+            const me = players[myId];
+            document.getElementById('ageVal').innerText = Math.floor(me.age);
+            document.getElementById('h-logs').innerText = me.inventory.logs;
+            document.getElementById('h-spears').innerText = me.inventory.spears;
+        }
+    });
+
+    // 5. Game Loop
+    function draw() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        if (!myId || !players[myId]) {
+            requestAnimationFrame(draw);
+            return;
+        }
+        
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        const me = players[myId];
+        let moved = false;
+        if (keys['w']) { me.y -= 5; moved = true; }
+        if (keys['s']) { me.y += 5; moved = true; }
+        if (keys['a']) { me.x -= 5; moved = true; }
+        if (keys['d']) { me.x += 5; moved = true; }
+
+        if (moved) {
+            socket.emit('playerMovement', { x: me.x, y: me.y });
+        }
+
+        const camX = me.x - canvas.width / 2;
+        const camY = me.y - canvas.height / 2;
+
+        // Draw Trees/Rocks
+        worldObjects.forEach(function(o) {
+            ctx.fillStyle = (o.type === 'tree') ? '#2e7d32' : '#757575';
+            ctx.beginPath();
+            ctx.arc(o.x - camX, o.y - camY, 20, 0, Math.PI * 2);
+            ctx.fill();
+        });
+
+        // Draw All Players
+        for (let id in players) {
+            let p = players[id];
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            ctx.arc(p.x - camX, p.y - camY, 15, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = "white";
+            ctx.font = "12px Arial";
+            ctx.fillText("Age: " + Math.floor(p.age), p.x - camX - 15, p.y - camY - 25);
+        }
+        requestAnimationFrame(draw);
+    }
+    draw();
+</script>
