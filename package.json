@@ -1,7 +1,6 @@
 {
-  "name": "ymay-civilization-clone",
+  "name": "ymay-clone",
   "version": "1.0.0",
-  "description": "A multiplayer civilization game",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
