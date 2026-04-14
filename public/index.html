@@ -2,150 +2,134 @@
 <html>
 <head>
     <style>
-        body { margin: 0; background: #4a703b; color: white; font-family: sans-serif; overflow: hidden; }
-
-        /* Title Screen */
-        #titleScreen { position: fixed; inset: 0; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100; }
-        .clan-btn { padding: 20px; margin: 10px; width: 200px; cursor: pointer; border: none; font-weight: bold; color: white; border-radius: 5px; }
-
-        /* HUD */
-        #hud { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.6); padding: 10px; border-radius: 5px; pointer-events: none; }
-        #hotbar { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 5px; background: rgba(0,0,0,0.6); padding: 10px; border-radius: 10px; }
-        .slot { width: 50px; height: 50px; border: 2px solid #fff; background: #333; display: flex; align-items: center; justify-content: center; font-size: 10px; text-align: center; }
-
-        /* Crafting */
-        #craftMenu { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.8); padding: 15px; border-radius: 10px; }
-        button { cursor: pointer; display: block; width: 100%; margin: 5px 0; }
+        body { margin: 0; background: #4a703b; color: white; font-family: 'Segoe UI', Tahoma, sans-serif; overflow: hidden; }
+        #titleScreen { position: fixed; inset: 0; background: radial-gradient(circle, #222, #000); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100; }
+        .clan-btn { padding: 15px; margin: 10px; width: 220px; cursor: pointer; border: 2px solid rgba(255,255,255,0.2); border-radius: 8px; font-weight: bold; transition: 0.2s; }
+        .clan-btn:hover { transform: scale(1.05); border-color: white; }
+        
+        #hud { position: absolute; top: 20px; left: 20px; background: rgba(0,0,0,0.7); padding: 15px; border-radius: 12px; border: 1px solid #555; pointer-events: none; }
+        #hotbar { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; background: rgba(0,0,0,0.8); padding: 12px; border-radius: 15px; border: 2px solid #444; }
+        .slot { width: 60px; height: 60px; background: #222; border: 2px solid #555; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 11px; }
+        .slot.active { border-color: #fff; box-shadow: 0 0 10px #fff; }
     </style>
 </head>
 <body>
-
     <div id="titleScreen">
-        <h1>Select Your Clan</h1>
-        <button class="clan-btn" style="background: #e74c3c;" onclick="join('red')">RED CLAN</button>
-        <button class="clan-btn" style="background: #3498db;" onclick="join('blue')">BLUE CLAN</button>
-        <button class="clan-btn" style="background: #2ecc71;" onclick="join('green')">GREEN CLAN</button>
-        <button class="clan-btn" style="background: #f1c40f; color: black;" onclick="join('yellow')">YELLOW CLAN</button>
+        <h1 style="font-size: 48px; letter-spacing: 5px;">YMAY</h1>
+        <p>Civilization & Lineage</p>
+        <button class="clan-btn" style="background:#e74c3c" onclick="join('red')">RED CLAN</button>
+        <button class="clan-btn" style="background:#3498db" onclick="join('blue')">BLUE CLAN</button>
     </div>
 
     <div id="hud">
-        Clan: <span id="clanName">-</span> | Age: <span id="ageVal">0</span><br>
-        Stamina: <span id="stamVal">100</span>
+        <div style="font-size: 18px; font-weight: bold;" id="clanDisplay">CLAN</div>
+        <div style="color: #aaa;">Age: <span id="ageVal">0</span></div>
+        <div style="width: 150px; height: 8px; background: #333; margin-top: 10px; border-radius: 4px; overflow: hidden;">
+            <div id="stamBar" style="width: 100%; height: 100%; background: #f1c40f; transition: 0.3s;"></div>
+        </div>
     </div>
-
-    <div id="craftMenu">
-        <b>Crafting</b>
-        <button onclick="socket.emit('craft', 'spear')">Spear (4 Sticks)</button>
-        <button onclick="socket.emit('craft', 'table')">Craft Table (10 Logs)</button>
-    </div>
-
+    
     <div id="hotbar">
+        <div class="slot active">Rock<br><span id="h-rocks">1</span></div>
         <div class="slot">Log<br><span id="h-logs">0</span></div>
         <div class="slot">Stick<br><span id="h-sticks">0</span></div>
-        <div class="slot">Stone<br><span id="h-stones">0</span></div>
-        <div class="slot">Spear<br><span id="h-spears">0</span></div>
-        <div class="slot">Table<br><span id="h-tables">0</span></div>
     </div>
 
     <canvas id="gameCanvas"></canvas>
-<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-<script>
-    // 1. Setup Variables
-    const socket = io();
-    const canvas = document.getElementById('gameCanvas');
-    const ctx = canvas.getContext('2d');
-    let myId = null;
-    let players = {};
-    let worldObjects = [];
-    const keys = {};
 
-    // 2. UI Functions
-    function join(c) {
-        document.getElementById('titleScreen').style.display = 'none';
-        socket.emit('joinGame', { clan: c });
-    }
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+        const socket = io();
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        let myId, players = {}, worldObjects = [];
+        let animOffset = { x: 0, y: 0 };
+        const keys = {};
 
-    // 3. Input Handling
-    window.addEventListener('keydown', function(e) { keys[e.key.toLowerCase()] = true; });
-    window.addEventListener('keyup', function(e) { keys[e.key.toLowerCase()] = false; });
-
-    // 4. Socket Listeners
-    socket.on('init', function(data) {
-        players = data.players;
-        worldObjects = data.worldObjects;
-        myId = data.myId;
-        if (players[myId]) {
-            document.getElementById('clanVal').innerText = players[myId].clan.toUpperCase();
-        }
-    });
-
-    socket.on('newPlayer', function(p) { players[p.id] = p; });
-    
-    socket.on('playerMoved', function(d) { 
-        if (players[d.id]) { 
-            players[d.id].x = d.x; 
-            players[d.id].y = d.y; 
-        }
-    });
-
-    socket.on('tick', function(serverPlayers) {
-        players = serverPlayers;
-        if (myId && players[myId]) {
-            const me = players[myId];
-            document.getElementById('ageVal').innerText = Math.floor(me.age);
-            document.getElementById('h-logs').innerText = me.inventory.logs;
-            document.getElementById('h-spears').innerText = me.inventory.spears;
-        }
-    });
-
-    // 5. Game Loop
-    function draw() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-
-        if (!myId || !players[myId]) {
-            requestAnimationFrame(draw);
-            return;
-        }
-        
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        
-        const me = players[myId];
-        let moved = false;
-        if (keys['w']) { me.y -= 5; moved = true; }
-        if (keys['s']) { me.y += 5; moved = true; }
-        if (keys['a']) { me.x -= 5; moved = true; }
-        if (keys['d']) { me.x += 5; moved = true; }
-
-        if (moved) {
-            socket.emit('playerMovement', { x: me.x, y: me.y });
+        function join(c) {
+            document.getElementById('titleScreen').style.display = 'none';
+            document.getElementById('clanDisplay').innerText = c.toUpperCase() + " CLAN";
+            socket.emit('joinGame', { clan: c });
         }
 
-        const camX = me.x - canvas.width / 2;
-        const camY = me.y - canvas.height / 2;
+        window.onkeydown = e => keys[e.key.toLowerCase()] = true;
+        window.onkeyup = e => keys[e.key.toLowerCase()] = false;
 
-        // Draw Trees/Rocks
-        worldObjects.forEach(function(o) {
-            ctx.fillStyle = (o.type === 'tree') ? '#2e7d32' : '#757575';
-            ctx.beginPath();
-            ctx.arc(o.x - camX, o.y - camY, 20, 0, Math.PI * 2);
-            ctx.fill();
+        socket.on('init', data => { players = data.players; worldObjects = data.worldObjects; myId = data.myId; });
+        socket.on('tick', sPlayers => {
+            players = sPlayers;
+            if(players[myId]) {
+                document.getElementById('ageVal').innerText = Math.floor(players[myId].age);
+                document.getElementById('stamBar').style.width = players[myId].stamina + "%";
+                document.getElementById('h-rocks').innerText = players[myId].inventory.rocks;
+                document.getElementById('h-logs').innerText = players[myId].inventory.logs;
+                document.getElementById('h-sticks').innerText = players[myId].inventory.sticks;
+            }
         });
 
-        // Draw All Players
-        for (let id in players) {
-            let p = players[id];
-            ctx.fillStyle = p.color;
-            ctx.beginPath();
-            ctx.arc(p.x - camX, p.y - camY, 15, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = "white";
-            ctx.font = "12px Arial";
-            ctx.fillText("Age: " + Math.floor(p.age), p.x - camX - 15, p.y - camY - 25);
+        socket.on('removeObject', id => { worldObjects = worldObjects.filter(o => o.id !== id); });
+
+        canvas.onmousedown = (e) => {
+            if(!players[myId]) return;
+            const cx = players[myId].x - canvas.width/2;
+            const cy = players[myId].y - canvas.height/2;
+            const mx = e.clientX + cx;
+            const my = e.clientY + cy;
+
+            // Trigger "Punch" Animation
+            const angle = Math.atan2(my - players[myId].y, mx - players[myId].x);
+            animOffset.x = Math.cos(angle) * 15;
+            animOffset.y = Math.sin(angle) * 15;
+            setTimeout(() => { animOffset = {x:0, y:0}; }, 150);
+
+            worldObjects.forEach(o => {
+                if(Math.hypot(o.x - mx, o.y - my) < o.size + 10) socket.emit('action', o.id);
+            });
+        };
+
+        function draw() {
+            canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+            if(!myId || !players[myId]) return requestAnimationFrame(draw);
+            
+            const me = players[myId];
+            if(keys['w']) me.y -= 4.5; if(keys['s']) me.y += 4.5;
+            if(keys['a']) me.x -= 4.5; if(keys['d']) me.x += 4.5;
+            socket.emit('playerMovement', {x: me.x, y: me.y});
+
+            const camX = me.x - canvas.width/2;
+            const camY = me.y - canvas.height/2;
+
+            // Draw Map Background Grid
+            ctx.strokeStyle = "rgba(0,0,0,0.1)";
+            for(let x = -camX % 100; x < canvas.width; x += 100) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
+            for(let y = -camY % 100; y < canvas.height; y += 100) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
+
+            // Draw Objects
+            worldObjects.forEach(o => {
+                ctx.fillStyle = "rgba(0,0,0,0.2)"; // Shadow
+                ctx.beginPath(); ctx.arc(o.x - camX + 5, o.y - camY + 5, o.size, 0, 7); ctx.fill();
+                ctx.fillStyle = o.type === 'tree' ? '#2d5a27' : '#7f8c8d';
+                ctx.beginPath(); ctx.arc(o.x - camX, o.y - camY, o.size, 0, 7); ctx.fill();
+            });
+
+            // Draw Players
+            for(let id in players) {
+                let p = players[id];
+                let px = p.x - camX;
+                let py = p.y - camY;
+                
+                if(id === myId) { px += animOffset.x; py += animOffset.y; }
+
+                ctx.fillStyle = p.color;
+                ctx.beginPath(); ctx.arc(px, py, 18, 0, 7); ctx.fill();
+                ctx.strokeStyle = "white"; ctx.lineWidth = 3; ctx.stroke();
+                
+                ctx.fillStyle = "white"; ctx.textAlign = "center";
+                ctx.fillText(`Lv. ${Math.floor(p.age)}`, px, py - 30);
+            }
+            requestAnimationFrame(draw);
         }
-        requestAnimationFrame(draw);
-    }
-    draw();
-</script>
+        draw();
+    </script>
 </body>
 </html>
