@@ -51,6 +51,17 @@
 
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script>
+        // This tells the game to connect to whatever website it is currently on
+const socket = io(); 
+
+// ADD THIS: A simple check to see if we are connected
+socket.on('connect', () => {
+    console.log("Successfully connected to the server!");
+});
+
+socket.on('connect_error', (err) => {
+    console.log("Connection error: ", err);
+});
         const socket = io();
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
