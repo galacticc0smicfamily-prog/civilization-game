@@ -80,4 +80,7 @@ setInterval(() => {
     io.emit('tick', players);
 }, 1000);
 
-http.listen(3000, () => console.log('Civ Server with Clans Online!'));
+const PORT = process.env.PORT || 3000;
+http.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server is running on port ${PORT}`);
+});
